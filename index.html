@@ -13,13 +13,11 @@
             font-family: monospace; font-size: 11px; z-index: 10;
         }
         
-        /* ĐÃ CHỈNH SỬA: Tăng độ sáng và độ nét cho khung Camera */
+        /* ĐÃ CHỈNH SỬA: Trả về camera hiển thị màu sắc mặc định, không làm mờ, không thêm filter */
         #webcam { 
-            position: absolute; bottom: 10px; left: 10px; width: 150px; /* Làm khung to hơn một chút */
+            position: absolute; bottom: 10px; left: 10px; width: 150px; 
             border-radius: 8px; transform: scaleX(-1); 
-            opacity: 0.85; /* Tăng từ 0.3 lên 0.85 để không bị mờ */
-            filter: brightness(1.5) contrast(1.2); /* Bộ lọc tăng 50% độ sáng và 20% độ tương phản */
-            z-index: 5; pointer-events: none; border: 2px solid #00ffff; box-shadow: 0 0 10px #00ffff;
+            z-index: 5; pointer-events: none; border: 1px solid #00ffff;
             display: none; 
         }
 
