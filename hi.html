@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Optimized Hybrid Bone Dragon</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; cursor: crosshair; }
+        #canvas { display: block; width: 100vw; height: 100vh; }
+        
+        #status { 
+            position: absolute; top: 10px; left: 10px; color: #00ffff; 
+            font-family: monospace; font-size: 11px; z-index: 10;
+        }
+        
+        #webcam { 
+            position: absolute; bottom: 10px; left: 10px; width: 120px; 
+            border-radius: 8px; transform: scaleX(-1); opacity: 0.3; 
+            z-index: 5; pointer-events: none; border: 1px solid #00ffff;
+            display: none; 
+        }
+
+        #modeBtn {
+            position: absolute; top: 10px; right: 10px; z-index: 10;
+            background: rgba(0, 10, 20, 0.8); color: #00ffff;
+            border: 1px solid #00ffff; padding: 8px 15px;
+            font-family: monospace; font-size: 12px; cursor: pointer;
+            border-radius: 4px; box-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+            transition: all 0.3s;
+        }
+        #modeBtn:hover {
+            background: #00ffff; color: #000; box-shadow: 0 0 15px #00ffff;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">MODE: MOUSE TRACKING</div>
+    <button id="modeBtn">SWITCH TO CAMERA</button>
+    
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('canvas');
+        const ctx = canvasElement.getContext('2d', { alpha: false });
+        const statusEl = document.getElementById('status');
+        const modeBtn = document.getElementById('modeBtn');
+
+        let width = canvasElement.width = window.innerWidth;
+        let height = canvasElement.height = window.innerHeight;
+
+        const N = 45; 
+        let elems = [];
+        let pointer = { x: width / 2, y: height / 2 };
+        
+        let lastPointer = { x: width / 2, y: height / 2 };
+        let idleFrames = 0;
+        let isIdle = false;
+        
+        let orbitAngle = 0;
+        let orbitRadius = 0;
+        let slitherTime = 0;
+        let flapTime = 0;
+
+        // Quản lý chế độ
+        let currentMode = 'mouse'; 
+        let cameraInitialized = false;
+        
+        // --- CÁC BIẾN TỐI ƯU AI ---
+        let hasHand = false;
+        let handLostFrames = 0; // Đếm số frame mất dấu tay (Chống khựng)
+        let aiTarget = { x: width / 2, y: height / 2 }; // Tọa độ thật của AI để nội suy
+
+        for (let i = 0; i < N; i++) {
+            elems.push({ x: width / 2, y: height / 2, a: 0 });
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            if (currentMode === 'mouse') {
+                pointer.x = e.clientX;
+                pointer.y = e.clientY;
+            }
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (currentMode === 'mouse') {
+                pointer.x = e.touches[0].clientX;
+                pointer.y = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        function initCamera() {
+            statusEl.innerText = "INIT: LOADING AI CAMERA...";
+            const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+            hands.setOptions({ 
+                maxNumHands: 1, 
+                modelComplexity: 0, // Nhẹ nhất
+                minDetectionConfidence: 0.5, 
+                minTrackingConfidence: 0.5 
+            });
+            
+            hands.onResults((results) => {
+                if (currentMode !== 'camera') return;
+                
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    hasHand = true;
+                    handLostFrames = 0; // Khôi phục trạng thái
+                    const hand = results.multiHandLandmarks[0];
+                    aiTarget.x = (1 - hand[8].x) * width;
+                    aiTarget.y = hand[8].y * height;
+                } else {
+                    // DEBOUNCE: Chỉ xác nhận mất tay nếu mất liên tục quá 5 khung hình
+                    handLostFrames++;
+                    if (handLostFrames > 5) {
+                        hasHand = false;
+                    }
+                }
+            });
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({image: videoElement}); },
+                width: 320, height: 240 // HẠ ĐỘ PHÂN GIẢI ĐỂ TĂNG TỐC XỬ LÝ
+            });
+
+            camera.start().then(() => {
+                cameraInitialized = true;
+                statusEl.innerText = "SYSTEM: READY (POINT YOUR FINGER)";
+            });
+        }
+
+        modeBtn.addEventListener('click', () => {
+            if (currentMode === 'mouse') {
+                currentMode = 'camera';
+                modeBtn.innerText = "SWITCH TO MOUSE";
+                videoElement.style.display = "block";
+                document.body.style.cursor = "none";
+                
+                if (!cameraInitialized) {
+                    initCamera();
+                } else {
+                    statusEl.innerText = "MODE: CAMERA TRACKING";
+                }
+            } else {
+                currentMode = 'mouse';
+                modeBtn.innerText = "SWITCH TO CAMERA";
+                videoElement.style.display = "none";
+                document.body.style.cursor = "crosshair";
+                statusEl.innerText = "MODE: MOUSE TRACKING";
+                hasHand = false;
+                pointer.x = width / 2; // Reset về giữa
+                pointer.y = height / 2;
+            }
+        });
+
+        function render() {
+            // Lọc mờ (Hiệu ứng đuôi sáng)
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(0, 4, 10, 0.3)'; 
+            ctx.fillRect(0, 0, width, height);
+            ctx.globalCompositeOperation = 'lighter';
+
+            // --- LỌC NHIỄU AI (SMOOTHING) ---
+            if (currentMode === 'camera' && hasHand) {
+                // Di chuyển pointer từ từ tới tọa độ tay thật (Trị rung lắc 100%)
+                // Chỉ số 0.35 là độ mượt, nếu thấy trễ có thể tăng lên 0.4 hoặc 0.5
+                pointer.x += (aiTarget.x - pointer.x) * 0.35;
+                pointer.y += (aiTarget.y - pointer.y) * 0.35;
+            }
+
+            let dxPointer = pointer.x - lastPointer.x;
+            let dyPointer = pointer.y - lastPointer.y;
+            let moveSpeed = Math.sqrt(dxPointer * dxPointer + dyPointer * dyPointer);
+
+            if (currentMode === 'camera' && !hasHand) {
+                idleFrames++;
+            } else if (moveSpeed < 1.0) { // Giảm giới hạn nhận diện đứng yên
+                idleFrames++;
+            } else {
+                idleFrames = 0;
+                isIdle = false;
+            }
+
+            if (idleFrames > 20) isIdle = true;
+
+            let flapSpeed = isIdle ? 0.05 : 0.15 + Math.min(moveSpeed * 0.01, 0.2);
+            flapTime += flapSpeed;
+
+            lastPointer.x = pointer.x;
+            lastPointer.y = pointer.y;
+
+            let targetX, targetY;
+            let e0 = elems[0]; 
+            let oldE0X = e0.x;
+            let oldE0Y = e0.y;
+
+            if (isIdle) {
+                if (currentMode === 'mouse') {
+                    statusEl.innerText = "MODE: MOUSE ORBIT (IDLE)";
+                } else {
+                    statusEl.innerText = hasHand ? "MODE: HOVERING (IDLE)" : "MODE: NO HAND - ORBITING";
+                }
+                
+                orbitRadius += (120 - orbitRadius) * 0.05; 
+                orbitAngle += 0.03; 
+                targetX = pointer.x + Math.cos(orbitAngle) * orbitRadius;
+                targetY = pointer.y + Math.sin(orbitAngle) * orbitRadius;
+            } else {
+                statusEl.innerText = currentMode === 'mouse' ? "MODE: MOUSE TRACKING" : "MODE: FOLLOWING FINGER";
+                orbitRadius += (0 - orbitRadius) * 0.2;
+                
+                let dx = pointer.x - e0.x;
+                let dy = pointer.y - e0.y;
+                let dist = Math.sqrt(dx * dx + dy * dy);
+                let dirAngle = Math.atan2(dy, dx);
+                
+                slitherTime += 0.15 + Math.min(dist * 0.001, 0.1);
+                let waveAmp = Math.min(dist * 0.4, 50); 
+                let perpX = Math.cos(dirAngle + Math.PI / 2);
+                let perpY = Math.sin(dirAngle + Math.PI / 2);
+                let waveOffset = Math.sin(slitherTime) * waveAmp;
+                
+                targetX = pointer.x + perpX * waveOffset;
+                targetY = pointer.y + perpY * waveOffset;
+                orbitAngle = Math.atan2(e0.y - pointer.y, e0.x - pointer.x);
+            }
+
+            e0.x += (targetX - e0.x) * 0.15;
+            e0.y += (targetY - e0.y) * 0.15;
+            
+            if (Math.abs(e0.x - oldE0X) > 0.1 || Math.abs(e0.y - oldE0Y) > 0.1) {
+                e0.a = Math.atan2(e0.y - oldE0Y, e0.x - oldE0X);
+            }
+
+            for (let i = 1; i < N; i++) {
+                let e = elems[i];
+                let ep = elems[i - 1];
+
+                let dx = ep.x - e.x;
+                let dy = ep.y - e.y;
+                let angle = Math.atan2(dy, dx);
+                let segmentDist = (120 - i * 2) / 7; 
+                
+                let strictX = ep.x - Math.cos(angle) * segmentDist;
+                let strictY = ep.y - Math.sin(angle) * segmentDist;
+
+                e.x += (strictX - e.x) * 0.65;
+                e.y += (strictY - e.y) * 0.65;
+                e.a = angle; 
+            }
+
+            for (let i = N - 1; i >= 0; i--) {
+                let e = elems[i];
+                
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                ctx.rotate(e.a);
+                
+                const scale = (N - i) / N; 
+                const alpha = 0.3 + scale * 0.7; 
+                
+                if (i === 0) {
+                    ctx.fillStyle = `rgba(220, 255, 255, ${alpha})`; 
+                    ctx.strokeStyle = `rgba(0, 255, 255, ${alpha})`; 
+                    ctx.lineWidth = 1.5;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#00ffff';
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(18, 0);   
+                    ctx.lineTo(6, 7);    
+                    ctx.lineTo(0, 9);    
+                    ctx.lineTo(-8, 5);   
+                    ctx.lineTo(-8, -5);  
+                    ctx.lineTo(0, -9);   
+                    ctx.lineTo(6, -7);   
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(-4, 6);
+                    ctx.quadraticCurveTo(-15, 18, -22, 12);
+                    ctx.moveTo(-4, -6);
+                    ctx.quadraticCurveTo(-15, -18, -22, -12);
+                    ctx.stroke();
+
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath(); ctx.arc(4, 4, 2.5, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(4, -4, 2.5, 0, Math.PI*2); ctx.fill();
+
+                    ctx.fillStyle = '#00ffff';
+                    ctx.beginPath(); ctx.arc(4.5, 4, 1, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(4.5, -4, 1, 0, Math.PI*2); ctx.fill();
+
+                } else {
+                    if (i === 7) {
+                        let flap = Math.sin(flapTime) * 0.6; 
+                        
+                        for (let side of [1, -1]) {
+                            ctx.save();
+                            ctx.scale(1, side); 
+                            ctx.rotate(-flap);  
+                            
+                            ctx.fillStyle = `rgba(0, 255, 255, 0.15)`; 
+                            ctx.strokeStyle = `rgba(150, 255, 255, 0.9)`; 
+                            ctx.lineWidth = 1.5;
+                            ctx.shadowBlur = 15;
+                            ctx.shadowColor = '#00ffff';
+                            
+                            ctx.beginPath();
+                            ctx.moveTo(0, 0);          
+                            ctx.lineTo(-15, 30);       
+                            ctx.lineTo(-40, 80);       
+                            ctx.lineTo(-55, 50);       
+                            ctx.lineTo(-30, 35);       
+                            ctx.lineTo(-45, 15);       
+                            ctx.lineTo(-20, 15);       
+                            ctx.closePath();
+                            ctx.fill();
+                            
+                            ctx.beginPath();
+                            ctx.moveTo(0, 0); ctx.lineTo(-15, 30); 
+                            ctx.lineTo(-40, 80); 
+                            ctx.moveTo(-15, 30); ctx.lineTo(-30, 35); 
+                            ctx.moveTo(-15, 30); ctx.lineTo(-20, 15); 
+                            ctx.stroke();
+                            ctx.restore();
+                        }
+                    }
+
+                    ctx.shadowBlur = 0; 
+                    const ribWidth = 16 * scale + 2; 
+                    const spineSize = 2.5 * scale + 1.5; 
+
+                    ctx.strokeStyle = `rgba(150, 240, 255, ${alpha * 0.8})`; 
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    ctx.lineWidth = 1.5;
+
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.quadraticCurveTo(-6 * scale, ribWidth * 0.7, -3 * scale, ribWidth);
+                    ctx.moveTo(0, 0);
+                    ctx.quadraticCurveTo(-6 * scale, -ribWidth * 0.7, -3 * scale, -ribWidth);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(0, 0, spineSize, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+            }
+
+            requestAnimationFrame(render);
+        }
+
+        window.addEventListener('resize', () => {
+            width = canvasElement.width = window.innerWidth;
+            height = canvasElement.height = window.innerHeight;
+        });
+
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>
