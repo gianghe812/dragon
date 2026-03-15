@@ -13,10 +13,13 @@
             font-family: monospace; font-size: 11px; z-index: 10;
         }
         
+        /* ĐÃ CHỈNH SỬA: Tăng độ sáng và độ nét cho khung Camera */
         #webcam { 
-            position: absolute; bottom: 10px; left: 10px; width: 120px; 
-            border-radius: 8px; transform: scaleX(-1); opacity: 0.3; 
-            z-index: 5; pointer-events: none; border: 1px solid #00ffff;
+            position: absolute; bottom: 10px; left: 10px; width: 150px; /* Làm khung to hơn một chút */
+            border-radius: 8px; transform: scaleX(-1); 
+            opacity: 0.85; /* Tăng từ 0.3 lên 0.85 để không bị mờ */
+            filter: brightness(1.5) contrast(1.2); /* Bộ lọc tăng 50% độ sáng và 20% độ tương phản */
+            z-index: 5; pointer-events: none; border: 2px solid #00ffff; box-shadow: 0 0 10px #00ffff;
             display: none; 
         }
 
@@ -66,14 +69,12 @@
         let slitherTime = 0;
         let flapTime = 0;
 
-        // Quản lý chế độ
         let currentMode = 'mouse'; 
         let cameraInitialized = false;
         
-        // --- CÁC BIẾN TỐI ƯU AI ---
         let hasHand = false;
-        let handLostFrames = 0; // Đếm số frame mất dấu tay (Chống khựng)
-        let aiTarget = { x: width / 2, y: height / 2 }; // Tọa độ thật của AI để nội suy
+        let handLostFrames = 0; 
+        let aiTarget = { x: width / 2, y: height / 2 }; 
 
         for (let i = 0; i < N; i++) {
             elems.push({ x: width / 2, y: height / 2, a: 0 });
@@ -98,7 +99,7 @@
             const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
             hands.setOptions({ 
                 maxNumHands: 1, 
-                modelComplexity: 0, // Nhẹ nhất
+                modelComplexity: 0, 
                 minDetectionConfidence: 0.5, 
                 minTrackingConfidence: 0.5 
             });
@@ -108,12 +109,11 @@
                 
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                     hasHand = true;
-                    handLostFrames = 0; // Khôi phục trạng thái
+                    handLostFrames = 0; 
                     const hand = results.multiHandLandmarks[0];
                     aiTarget.x = (1 - hand[8].x) * width;
                     aiTarget.y = hand[8].y * height;
                 } else {
-                    // DEBOUNCE: Chỉ xác nhận mất tay nếu mất liên tục quá 5 khung hình
                     handLostFrames++;
                     if (handLostFrames > 5) {
                         hasHand = false;
@@ -123,7 +123,7 @@
 
             const camera = new Camera(videoElement, {
                 onFrame: async () => { await hands.send({image: videoElement}); },
-                width: 320, height: 240 // HẠ ĐỘ PHÂN GIẢI ĐỂ TĂNG TỐC XỬ LÝ
+                width: 320, height: 240 
             });
 
             camera.start().then(() => {
@@ -151,22 +151,18 @@
                 document.body.style.cursor = "crosshair";
                 statusEl.innerText = "MODE: MOUSE TRACKING";
                 hasHand = false;
-                pointer.x = width / 2; // Reset về giữa
+                pointer.x = width / 2; 
                 pointer.y = height / 2;
             }
         });
 
         function render() {
-            // Lọc mờ (Hiệu ứng đuôi sáng)
             ctx.globalCompositeOperation = 'source-over';
             ctx.fillStyle = 'rgba(0, 4, 10, 0.3)'; 
             ctx.fillRect(0, 0, width, height);
             ctx.globalCompositeOperation = 'lighter';
 
-            // --- LỌC NHIỄU AI (SMOOTHING) ---
             if (currentMode === 'camera' && hasHand) {
-                // Di chuyển pointer từ từ tới tọa độ tay thật (Trị rung lắc 100%)
-                // Chỉ số 0.35 là độ mượt, nếu thấy trễ có thể tăng lên 0.4 hoặc 0.5
                 pointer.x += (aiTarget.x - pointer.x) * 0.35;
                 pointer.y += (aiTarget.y - pointer.y) * 0.35;
             }
@@ -177,7 +173,7 @@
 
             if (currentMode === 'camera' && !hasHand) {
                 idleFrames++;
-            } else if (moveSpeed < 1.0) { // Giảm giới hạn nhận diện đứng yên
+            } else if (moveSpeed < 1.0) { 
                 idleFrames++;
             } else {
                 idleFrames = 0;
